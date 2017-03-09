@@ -79,16 +79,18 @@ void pose_estimation_2d2d (
     const std::vector<KeyPoint>& keypoints_1,
     const std::vector<KeyPoint>& keypoints_2,
     const std::vector< DMatch >& matches,
-    Mat& R, Mat& t );
+    Mat& R, Mat& t, Mat& mask);
 
 // 像素坐标转相机归一化坐标
 Point2f pixel2cam( const Point2d& p, const Mat& K );
+
+void maskout_points(vector<Point2f>& p1, Mat& mask);
 
 void triangulation (
     const vector<KeyPoint>& keypoint_1,
     const vector<KeyPoint>& keypoint_2,
     const std::vector< DMatch >& matches,
-    const Mat& R, const Mat& t,
+    const Mat& R, const Mat& t, Mat& mask,
     vector<Point3d>& points
 );
 
@@ -100,7 +102,7 @@ double normofTransform( cv::Mat rvec, cv::Mat tvec );
 cv::Point3f point2dTo3d( cv::Point3f& point, CAMERA_INTRINSIC_PARAMETERS& camera );
 
 // computeKeyPointsAndDesp 同时提取关键点与特征描述子
-void computeKeyPointsAndDesp( FRAME& frame, string detector, string descriptor );
+void computeKeyPointsAndDesp( FRAME& frame, string detector, string descriptor ,int detector_size);
 
 void get_matched_points(
     FRAME& first,

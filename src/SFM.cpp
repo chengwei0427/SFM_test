@@ -34,9 +34,10 @@ int main( int argc, char** argv )
     // initialize
     cout << "Initializing ..." << endl;
     int currIndex = startIndex; // 当前索引为currIndex
-
-    string detector = pd.getData( "detector" );
-    string descriptor = pd.getData( "descriptor" );
+    // 默认使用ORB
+     string detector = pd.getData( "detector" );
+     string descriptor = pd.getData( "descriptor" );
+     int detector_size = atoi( pd.getData("detector_size").c_str() );
 
     Mat K = ( Mat_<double> ( 3, 3 ) << 520.9, 0, 325.1, 0, 521.0, 249.7, 0, 0, 1 );
 
@@ -54,8 +55,8 @@ int main( int argc, char** argv )
             // 读取两帧数据
             FRAME firstFrame = readFrame( currIndex, pd );
             FRAME secondFrame = readFrame(currIndex + 1, pd);
-            computeKeyPointsAndDesp( firstFrame, detector, descriptor );
-            computeKeyPointsAndDesp( secondFrame, detector, descriptor ); //提取特征
+            computeKeyPointsAndDesp( firstFrame, detector, descriptor ,detector_size);
+            computeKeyPointsAndDesp( secondFrame, detector, descriptor,detector_size ); //提取特征
             keyframes.push_back( firstFrame ); // 第一帧数据加入keyFrame
 
             cout << "RANSAC" << endl;
@@ -64,12 +65,11 @@ int main( int argc, char** argv )
             cout << "一共找到了" << matches.size() << "组匹配点" << endl;
             //-- 估计两张图像间运动
             Mat R, t;
-            pose_estimation_2d2d ( firstFrame.kp, secondFrame.kp, matches, R, t );
+            Mat mask;
+            pose_estimation_2d2d ( firstFrame.kp, secondFrame.kp, matches, R, t, mask );
 
             //-- 三角化
-            triangulation( firstFrame.kp, secondFrame.kp, matches, R, t, points );
-            correspond_struct_idx[0].resize(firstFrame.kp.size(), -1);
-            correspond_struct_idx[1].resize(secondFrame.kp.size(), -1);
+            triangulation( firstFrame.kp, secondFrame.kp, matches, R, t, mask, points );
 
             Mat R0 = Mat::eye(3, 3, CV_64FC1);
             Mat T0 = Mat::zeros(3, 1, CV_64FC1);
@@ -81,9 +81,13 @@ int main( int argc, char** argv )
             motions.push_back(T0);
             motions.push_back(t);
             // 填写头两幅图像的结构索引
+            correspond_struct_idx[0].resize(firstFrame.kp.size(), -1);
+            correspond_struct_idx[1].resize(secondFrame.kp.size(), -1);
             int idx = 0;
             for (int i = 0; i < matches.size(); ++i)
             {
+                if (mask.at<uchar>(i) == 0)
+                    continue;
                 correspond_struct_idx[0][matches[i].queryIdx] = idx;
                 correspond_struct_idx[1][matches[i].trainIdx] = idx;
                 ++idx;
@@ -94,16 +98,17 @@ int main( int argc, char** argv )
         }
         else
         {
+	  cout << "-------------------------------------------------" << endl;
             cout << "Reading files " << currIndex << endl;
             FRAME currFrame = readFrame( currIndex, pd ); // 读取currFrame
-            computeKeyPointsAndDesp( currFrame, detector, descriptor ); //提取特征
+            computeKeyPointsAndDesp( currFrame, detector, descriptor, detector_size ); //提取特征
 
             // 比较f1 和 f2
             vector< cv::DMatch > matches;
             Fundamental_RANSAC(lastFrame, currFrame, matches );
-	    cout<< " good match after RANSAC : " << matches.size() << endl;
+            cout << " good match after RANSAC : " << matches.size() << endl;
             RESULT_OF_PNP result = estimateMotion( lastFrame, currFrame, correspond_struct_idx[num_t], matches, points, camera );
-            if ( result.inliers < min_inliers )    //inliers不够，放弃该帧
+         /*   if ( result.inliers < min_inliers )    //inliers不够，放弃该帧
             {
                 cout << "LESS INLIERS " << endl;
                 continue;
@@ -123,7 +128,7 @@ int main( int argc, char** argv )
             if ( norm <= keyframe_threshold ) {
                 cout << "TOO_CLOSE" << endl;   // too adjacent frame 太近
                 continue;
-            }
+            }*/
             cout << " A NEW KEYFRAME" << endl;
             keyframes.push_back( currFrame );
             Mat R;

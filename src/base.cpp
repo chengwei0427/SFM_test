@@ -5,13 +5,13 @@
 
 
 // computeKeyPointsAndDesp 同时提取关键点与特征描述子
-void computeKeyPointsAndDesp( FRAME& frame, string detector, string descriptor )
+void computeKeyPointsAndDesp( FRAME& frame, string detector, string descriptor, int detector_size )
 {
     cv::Ptr<cv::FeatureDetector> _detector;
     cv::Ptr<cv::DescriptorExtractor> _descriptor;
 
 //     cv::initModule_nonfree();
-    _detector = ORB::create(1000); // 提取1000个orb特征点
+    _detector = ORB::create(detector_size); // 提取1000个orb特征点
     _descriptor = ORB::create();
     //_detector = cv::FeatureDetector::create( detector.c_str() );
     //_descriptor = cv::DescriptorExtractor::create( descriptor.c_str() );
@@ -185,7 +185,7 @@ void fusion_points(
             next_struct_indices[train_idx] = struct_idx;
             continue;
         }
-        cout << "--------  add a new point  -------" << endl;
+//         cout << "--------  add a new point  -------" << endl;
         //若该点在空间中已经存在，将该点加入到结构中，且这对匹配点的空间点索引都为新加入的点的索引
         structure.push_back(next_structure[i]);
         struct_indices[query_idx] = next_struct_indices[train_idx] = structure.size() - 1;
@@ -262,7 +262,7 @@ void pose_estimation_2d2d (
     const std::vector<KeyPoint>& keypoints_1,
     const std::vector<KeyPoint>& keypoints_2,
     const std::vector< DMatch >& matches,
-    Mat& R, Mat& t )
+    Mat& R, Mat& t , Mat& mask)
 {
     // 相机内参,TUM Freiburg2
     Mat K = ( Mat_<double> ( 3, 3 ) << 520.9, 0, 325.1, 0, 521.0, 249.7, 0, 0, 1 );
@@ -280,32 +280,43 @@ void pose_estimation_2d2d (
     //-- 计算基础矩阵
     Mat fundamental_matrix;
     fundamental_matrix = findFundamentalMat ( points1, points2, CV_FM_8POINT );
-    cout << "fundamental_matrix is " << endl << fundamental_matrix << endl;
+    //cout << "fundamental_matrix is " << endl << fundamental_matrix << endl;
 
     //-- 计算本质矩阵
     Point2d principal_point ( 325.1, 249.7 );               //相机主点, TUM dataset标定值
     int focal_length = 521;                     //相机焦距, TUM dataset标定值
     Mat essential_matrix;
-    essential_matrix = findEssentialMat ( points1, points2, focal_length, principal_point );
-    cout << "essential_matrix is " << endl << essential_matrix << endl;
+    essential_matrix = findEssentialMat ( points1, points2, focal_length, principal_point, RANSAC, 0.9, 1.0, mask );
+    //cout << "essential_matrix is " << endl << essential_matrix << endl;
 
     //-- 计算单应矩阵
     Mat homography_matrix;
     homography_matrix = findHomography ( points1, points2, RANSAC, 3 );
-    cout << "homography_matrix is " << endl << homography_matrix << endl;
+    //cout << "homography_matrix is " << endl << homography_matrix << endl;
 
     //-- 从本质矩阵中恢复旋转和平移信息.
-    recoverPose ( essential_matrix, points1, points2, R, t, focal_length, principal_point );
+    recoverPose ( essential_matrix, points1, points2, R, t, focal_length, principal_point , mask);
 //     cout<<"R is "<<endl<<R<<endl;
 //     cout<<"t is "<<endl<<t<<endl;
 }
 
+void maskout_points(vector<Point2f>& p1, Mat& mask)
+{
+    vector<Point2f> p1_copy = p1;
+    p1.clear();
+
+    for (int i = 0; i < mask.rows; ++i)
+    {
+        if (mask.at<uchar>(i) > 0)
+            p1.push_back(p1_copy[i]);
+    }
+}
 
 void triangulation (
     const vector< KeyPoint >& keypoint_1,
     const vector< KeyPoint >& keypoint_2,
     const std::vector< DMatch >& matches,
-    const Mat& R, const Mat& t,
+    const Mat& R, const Mat& t, Mat& mask,
     vector< Point3d >& points )
 {
     Mat T1 = (Mat_<float> (3, 4) <<
@@ -326,7 +337,8 @@ void triangulation (
         pts_1.push_back ( pixel2cam( keypoint_1[m.queryIdx].pt, K) );
         pts_2.push_back ( pixel2cam( keypoint_2[m.trainIdx].pt, K) );
     }
-
+    maskout_points(pts_1, mask);
+    maskout_points(pts_2, mask);
     Mat pts_4d;
     cv::triangulatePoints( T1, T2, pts_1, pts_2, pts_4d );
 
@@ -456,7 +468,7 @@ void Fundamental_RANSAC(
 // 显示计算F过后的内点匹配
 //     Mat OutImage;
 //      drawMatches(img_1, key1, img_2, key2, m_InlierMatches, OutImage);
-// 
+//
 //      imshow("match features after RANSAC", OutImage);
 //      cvWaitKey( 0 );
 }
