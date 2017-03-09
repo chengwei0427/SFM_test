@@ -39,9 +39,9 @@ int main( int argc, char** argv )
     string descriptor = pd.getData( "descriptor" );
 
     Mat K = ( Mat_<double> ( 3, 3 ) << 520.9, 0, 325.1, 0, 521.0, 249.7, 0, 0, 1 );
-    PointCloud::Ptr pointCloud(new PointCloud);
+
     FRAME lastFrame;
-    int t;
+    int num_t;
     vector<Mat> rotations;
     vector<Mat> motions;
     vector<Point3d> points;
@@ -58,8 +58,8 @@ int main( int argc, char** argv )
             computeKeyPointsAndDesp( secondFrame, detector, descriptor ); //提取特征
             keyframes.push_back( firstFrame ); // 第一帧数据加入keyFrame
 
-            cout << "ransac" << endl;
-	    vector< cv::DMatch > matches;
+            cout << "RANSAC" << endl;
+            vector< cv::DMatch > matches;
             Fundamental_RANSAC(firstFrame, secondFrame, matches );
             cout << "一共找到了" << matches.size() << "组匹配点" << endl;
             //-- 估计两张图像间运动
@@ -74,10 +74,12 @@ int main( int argc, char** argv )
             Mat R0 = Mat::eye(3, 3, CV_64FC1);
             Mat T0 = Mat::zeros(3, 1, CV_64FC1);
             //保存变换矩阵
+            //将旋转向量转换为旋转矩阵
+//      Rodrigues(r, R);
             rotations.push_back(R0);
-	    rotations.push_back(R);
+            rotations.push_back(R);
             motions.push_back(T0);
-	    motions.push_back(t);
+            motions.push_back(t);
             // 填写头两幅图像的结构索引
             int idx = 0;
             for (int i = 0; i < matches.size(); ++i)
@@ -86,7 +88,7 @@ int main( int argc, char** argv )
                 correspond_struct_idx[1][matches[i].trainIdx] = idx;
                 ++idx;
             }
-            t = 1;
+            num_t = 1;
             lastFrame = secondFrame;
             currIndex = currIndex + 1;
         }
@@ -97,9 +99,10 @@ int main( int argc, char** argv )
             computeKeyPointsAndDesp( currFrame, detector, descriptor ); //提取特征
 
             // 比较f1 和 f2
-	    vector< cv::DMatch > matches;
+            vector< cv::DMatch > matches;
             Fundamental_RANSAC(lastFrame, currFrame, matches );
-            RESULT_OF_PNP result = estimateMotion( lastFrame, currFrame, correspond_struct_idx[t], matches, points, camera );
+	    cout<< " good match after RANSAC : " << matches.size() << endl;
+            RESULT_OF_PNP result = estimateMotion( lastFrame, currFrame, correspond_struct_idx[num_t], matches, points, camera );
             if ( result.inliers < min_inliers )    //inliers不够，放弃该帧
             {
                 cout << "LESS INLIERS " << endl;
@@ -131,22 +134,40 @@ int main( int argc, char** argv )
             motions.push_back(result.tvec);
 
             vector<Point2f> p1, p2;
+
             get_matched_points(lastFrame, currFrame, matches, p1, p2);
+            cout << p1.size() << " p1  p2 " << p2.size() << endl;
             // 根据之前求解的R,T进行三维重建
             vector<Point3d> next_points;
-            reconstruct(
-                K, rotations[t], motions[t],
-                result.rvec, result.tvec, p1, p2, next_points);
 
+            reconstruct(
+                K, rotations[num_t], motions[num_t],
+                R, result.tvec, p1, p2, next_points);
+            correspond_struct_idx[num_t + 1].resize(currFrame.kp.size(), -1);
             fusion_points(
-                matches, correspond_struct_idx[t],
-                correspond_struct_idx[t + 1], points, next_points);
+                matches, correspond_struct_idx[num_t],
+                correspond_struct_idx[num_t + 1], points, next_points);
+            cout << " points size is : " << points.size() << endl;
 
             imshow("KEY FRAME", currFrame.rgb);
             cvWaitKey( 0 );
             lastFrame = currFrame;
+            num_t++;
         }
     }
+    // 新建一个点云
+    PointCloud::Ptr pointCloud( new PointCloud );
+    for (int i = 0; i < points.size(); i++)
+    {
+        PointT p;
+        p.x = points[i].x;
+        p.y = points[i].y;
+        p.z = points[i].z;
+        pointCloud->points.push_back( p );
+    }
+    pointCloud->is_dense = false;
+    cout << "点云共有" << pointCloud->size() << "个点." << endl;
+    pcl::io::savePCDFileBinary("map.pcd", *pointCloud );
     return 0;
 }
 

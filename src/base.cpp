@@ -11,7 +11,7 @@ void computeKeyPointsAndDesp( FRAME& frame, string detector, string descriptor )
     cv::Ptr<cv::DescriptorExtractor> _descriptor;
 
 //     cv::initModule_nonfree();
-    _detector = ORB::create();
+    _detector = ORB::create(1000); // 提取1000个orb特征点
     _descriptor = ORB::create();
     //_detector = cv::FeatureDetector::create( detector.c_str() );
     //_descriptor = cv::DescriptorExtractor::create( descriptor.c_str() );
@@ -69,7 +69,7 @@ RESULT_OF_PNP estimateMotion(
     vector<Point3d>& points,
     CAMERA_INTRINSIC_PARAMETERS& camera )
 {
-  RESULT_OF_PNP result;
+    RESULT_OF_PNP result;
     //第一个帧的三维点
     vector<cv::Point3f> pts_obj;
     // 第二个帧的图像点
@@ -107,11 +107,14 @@ RESULT_OF_PNP estimateMotion(
     cv::Mat cameraMatrix( 3, 3, CV_64F, camera_matrix_data );
     cv::Mat rvec, tvec, inliers;
     // 求解pnp
-    cv::solvePnPRansac( pts_obj, pts_img, cameraMatrix, cv::Mat(), rvec, tvec, false, 100, 1.0, 0.88, inliers );
+    cout << "pts_obj number is :" << pts_obj.size() << endl;
+    cout << " pts_img number is : " << pts_img.size() << endl;
+    cv::solvePnPRansac( pts_obj, pts_img, cameraMatrix, cv::Mat(), rvec, tvec, false, 100, 8.0, 0.88, inliers );
 
     result.rvec = rvec;
     result.tvec = tvec;
     result.inliers = inliers.rows;
+    cout << "inliers after solvePnPRansac : " << inliers.rows << endl;
 
     return result;
 }
@@ -169,6 +172,7 @@ void fusion_points(
     vector<Point3d>& next_structure
 )
 {
+    cout << " fusion_points" << endl;
     for (int i = 0; i < matches.size(); ++i)
     {
         int query_idx = matches[i].queryIdx;
@@ -177,9 +181,11 @@ void fusion_points(
         int struct_idx = struct_indices[query_idx];
         if (struct_idx >= 0) //若该点在空间中已经存在，则这对匹配点对应的空间点应该是同一个，索引要相同
         {
+//             cout << "continue" << endl;
             next_struct_indices[train_idx] = struct_idx;
             continue;
         }
+        cout << "--------  add a new point  -------" << endl;
         //若该点在空间中已经存在，将该点加入到结构中，且这对匹配点的空间点索引都为新加入的点的索引
         structure.push_back(next_structure[i]);
         struct_indices[query_idx] = next_struct_indices[train_idx] = structure.size() - 1;
@@ -363,7 +369,7 @@ void Fundamental_RANSAC(
 
     //-- 对两幅图像中的BRIEF描述子进行匹配，使用 Hamming 距离
     vector<DMatch> matches;
-    //cv::FlannBasedMatcher matcher;
+    //cv::FlannBasedMatcher matcher; // orb不能用此计算
     BFMatcher matcher ( NORM_HAMMING );
     matcher.match ( descriptors_1, descriptors_2, matches );
 
@@ -448,9 +454,9 @@ void Fundamental_RANSAC(
     KeyPoint::convert(m_RightInlier, key2);
 
 // 显示计算F过后的内点匹配
-    Mat OutImage;
-    drawMatches(img_1, key1, img_2, key2, m_InlierMatches, OutImage);
-
-    imshow("match features after RANSAC", OutImage);
-    cvWaitKey( 0 );
+//     Mat OutImage;
+//      drawMatches(img_1, key1, img_2, key2, m_InlierMatches, OutImage);
+// 
+//      imshow("match features after RANSAC", OutImage);
+//      cvWaitKey( 0 );
 }

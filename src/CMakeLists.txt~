@@ -12,14 +12,14 @@ LINK_LIBRARIES( ${PCL_LIBRARY_DIRS} )
 
 
 
- ADD_LIBRARY( base base.cpp )
- TARGET_LINK_LIBRARIES( base
-     ${OpenCV_LIBS} 
-     ${PCL_LIBRARIES} )
+# ADD_LIBRARY( base base.cpp )
+# TARGET_LINK_LIBRARIES( base
+#     ${OpenCV_LIBS} 
+#     ${PCL_LIBRARIES} )
 
 
-ADD_EXECUTABLE( SFM SFM.cpp)
+ADD_EXECUTABLE( SFM base.cpp SFM.cpp)
 TARGET_LINK_LIBRARIES( SFM
-    base
+    #base
     ${OpenCV_LIBS} 
     ${PCL_LIBRARIES} )
