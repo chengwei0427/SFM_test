@@ -1,0 +1,39 @@
+
+
+# 特征类型
+detector=ORB
+descriptor=ORB
+detector_size=3200
+# 筛选good match的倍数
+good_match_threshold=4
+
+# camera 内参
+camera.cx=325.5;
+camera.cy=253.5;
+camera.fx=518.0;
+camera.fy=519.0;
+camera.scale=1000.0;
+
+# 数据相关
+# 起始与终止索引
+start_index=250
+end_index=280
+# 数据所在目录
+rgb_dir=./data/rgb_png/
+rgb_extension=.png
+depth_dir=./data/depth_png/
+depth_extension=.png
+
+# 最小匹配数量
+min_good_match=10
+# 最小内点
+min_inliers=5
+# 最小运动误差
+min_norm=0.02
+# 最大运动误差
+max_norm=5.0
+# 最小运动误差
+keyframe_threshold=0.03
+# 最小间隔
+min_KF=3
+
