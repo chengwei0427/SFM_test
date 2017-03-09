@@ -25,10 +25,19 @@ void computeKeyPointsAndDesp( FRAME& frame, string detector, string descriptor, 
     _detector->detect( frame.rgb, frame.kp );
     _descriptor->compute( frame.rgb, frame.kp, frame.desp );
 
+    // 保存颜色信息
+    vector<Vec3b> colors(frame.kp.size());
+    for (int i = 0; i < frame.kp.size(); ++i)
+    {
+        Point2f& p = frame.kp[i].pt;
+        colors[i] = frame.rgb.at<Vec3b>(p.y, p.x);
+    }
+    frame.colors = colors;
+
     return;
 }
 
-void reconstruct(Mat& K, Mat& R1, Mat& T1, Mat& R2, Mat& T2, vector<Point2f>& p1, vector<Point2f>& p2, vector<Point3d>& structure)
+void reconstruct(Mat& K, Mat& R1, Mat& T1, Mat& R2, Mat& T2, vector<Point2f>& p1, vector<Point2f>& p2, vector<Point3f>& structure)
 {
     //两个相机的投影矩阵[R T]，triangulatePoints只支持float型
     Mat proj1(3, 4, CV_32FC1);
@@ -66,7 +75,7 @@ RESULT_OF_PNP estimateMotion(
     FRAME& frame1, FRAME& frame2,
     vector<int>& struct_indices,
     vector<DMatch>& goodMatches,
-    vector<Point3d>& points,
+    vector<Point3f>& points,
     CAMERA_INTRINSIC_PARAMETERS& camera )
 {
     RESULT_OF_PNP result;
@@ -121,7 +130,7 @@ RESULT_OF_PNP estimateMotion(
 
 
 // cvMat2Eigen
-Eigen::Isometry3d cvMat2Eigen( cv::Mat& rvec, cv::Mat& tvec )
+/*Eigen::Isometry3d cvMat2Eigen( cv::Mat& rvec, cv::Mat& tvec )
 {
     cv::Mat R;
     cv::Rodrigues( rvec, R );
@@ -143,6 +152,25 @@ Eigen::Isometry3d cvMat2Eigen( cv::Mat& rvec, cv::Mat& tvec )
     T(1, 3) = tvec.at<double>(1, 0);
     T(2, 3) = tvec.at<double>(2, 0);
     return T;
+}*/
+
+void get_matched_colors(
+    FRAME& first,
+    FRAME& second,
+    vector<DMatch> matches,
+    vector<Vec3b>& out_c1,
+    vector<Vec3b>& out_c2
+)
+{
+    vector<Vec3b> c1 = first.colors;
+    vector<Vec3b> c2 = second.colors;
+    out_c1.clear();
+    out_c2.clear();
+    for (int i = 0; i < matches.size(); ++i)
+    {
+        out_c1.push_back(c1[matches[i].queryIdx]);
+        out_c2.push_back(c2[matches[i].trainIdx]);
+    }
 }
 
 void get_matched_points(
@@ -168,8 +196,10 @@ void fusion_points(
     vector<DMatch>& matches,
     vector<int>& struct_indices,
     vector<int>& next_struct_indices,
-    vector<Point3d>& structure,
-    vector<Point3d>& next_structure
+    vector<Point3f>& structure,
+    vector<Point3f>& next_structure,
+    vector<Vec3b>& colors,
+    vector<Vec3b>& next_colors
 )
 {
     cout << " fusion_points" << endl;
@@ -188,6 +218,7 @@ void fusion_points(
 //         cout << "--------  add a new point  -------" << endl;
         //若该点在空间中已经存在，将该点加入到结构中，且这对匹配点的空间点索引都为新加入的点的索引
         structure.push_back(next_structure[i]);
+        colors.push_back(next_colors[i]);
         struct_indices[query_idx] = next_struct_indices[train_idx] = structure.size() - 1;
     }
 }
@@ -200,6 +231,38 @@ double normofTransform( cv::Mat rvec, cv::Mat tvec )
     return fabs(min(cv::norm(rvec), 2 * M_PI - cv::norm(rvec))) + fabs(cv::norm(tvec));
 }
 
+void find_frame_matches(
+    FRAME& first, FRAME& second,
+    double good_match_threshold,
+    std::vector< DMatch >& goodMatches)
+{
+    Mat descriptors_1 = first.desp;
+    Mat descriptors_2 = second.desp;
+    vector<DMatch> matches;
+    BFMatcher matcher ( NORM_HAMMING );
+    matcher.match ( descriptors_1, descriptors_2, matches );
+
+    double minDis = 9999;
+    for ( size_t i = 0; i < matches.size(); i++ )
+    {
+        if ( matches[i].distance < minDis )
+            minDis = matches[i].distance;
+    }
+
+    cout << "min dis = " << minDis << endl;
+    if ( minDis < 10 )
+        minDis = 10;
+    goodMatches.clear();
+    for ( size_t i = 0; i < matches.size(); i++ )
+    {
+        if (matches[i].distance < good_match_threshold * minDis )
+            goodMatches.push_back( matches[i] );
+    }
+    Mat img;
+    drawMatches ( first.rgb, first.kp, second.rgb, second.kp, goodMatches, img );
+    imshow ( "匹配点对", img );
+    waitKey(0);
+}
 void find_feature_matches ( const Mat& img_1, const Mat& img_2,
                             std::vector<KeyPoint>& keypoints_1,
                             std::vector<KeyPoint>& keypoints_2,
@@ -300,6 +363,18 @@ void pose_estimation_2d2d (
 //     cout<<"t is "<<endl<<t<<endl;
 }
 
+void maskout_colors(vector<Vec3b>& p1, Mat& mask)
+{
+    vector<Vec3b> p1_copy = p1;
+    p1.clear();
+
+    for (int i = 0; i < mask.rows; ++i)
+    {
+        if (mask.at<uchar>(i) > 0)
+            p1.push_back(p1_copy[i]);
+    }
+}
+
 void maskout_points(vector<Point2f>& p1, Mat& mask)
 {
     vector<Point2f> p1_copy = p1;
@@ -317,7 +392,7 @@ void triangulation (
     const vector< KeyPoint >& keypoint_2,
     const std::vector< DMatch >& matches,
     const Mat& R, const Mat& t, Mat& mask,
-    vector< Point3d >& points )
+    vector< Point3f >& points )
 {
     Mat T1 = (Mat_<float> (3, 4) <<
               1, 0, 0, 0,
@@ -347,7 +422,7 @@ void triangulation (
     {
         Mat x = pts_4d.col(i);
         x /= x.at<float>(3, 0); // 归一化
-        Point3d p (
+        Point3f p (
             x.at<float>(0, 0),
             x.at<float>(1, 0),
             x.at<float>(2, 0)

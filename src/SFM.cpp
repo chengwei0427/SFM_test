@@ -21,6 +21,7 @@ int main( int argc, char** argv )
     int min_inliers = atoi( pd.getData("min_inliers").c_str() );
     double max_norm = atof( pd.getData("max_norm").c_str() );
     double min_norm = atof( pd.getData("min_norm").c_str() );
+    double good_match_threshold = atof( pd.getData( "good_match_threshold" ).c_str() );
     double keyframe_threshold = atof( pd.getData("keyframe_threshold").c_str() );
     int min_KF = atof( pd.getData("min_KF").c_str() );
     CAMERA_INTRINSIC_PARAMETERS camera = getDefaultCamera();
@@ -35,9 +36,9 @@ int main( int argc, char** argv )
     cout << "Initializing ..." << endl;
     int currIndex = startIndex; // 当前索引为currIndex
     // 默认使用ORB
-     string detector = pd.getData( "detector" );
-     string descriptor = pd.getData( "descriptor" );
-     int detector_size = atoi( pd.getData("detector_size").c_str() );
+    string detector = pd.getData( "detector" );
+    string descriptor = pd.getData( "descriptor" );
+    int detector_size = atoi( pd.getData("detector_size").c_str() );
 
     Mat K = ( Mat_<double> ( 3, 3 ) << 520.9, 0, 325.1, 0, 521.0, 249.7, 0, 0, 1 );
 
@@ -45,29 +46,32 @@ int main( int argc, char** argv )
     int num_t;
     vector<Mat> rotations;
     vector<Mat> motions;
-    vector<Point3d> points;
+    vector<Point3f> points;
+    vector<Vec3b> colors; // 颜色
     for ( currIndex = startIndex; currIndex < endIndex; currIndex++ )
     {
         if (!mstate)
         {
             cout << "初始化" << endl;
             mstate = true;
+            vector<Vec3b> c2;
             // 读取两帧数据
             FRAME firstFrame = readFrame( currIndex, pd );
             FRAME secondFrame = readFrame(currIndex + 1, pd);
-            computeKeyPointsAndDesp( firstFrame, detector, descriptor ,detector_size);
-            computeKeyPointsAndDesp( secondFrame, detector, descriptor,detector_size ); //提取特征
+            computeKeyPointsAndDesp( firstFrame, detector, descriptor , detector_size);
+            computeKeyPointsAndDesp( secondFrame, detector, descriptor, detector_size ); //提取特征
             keyframes.push_back( firstFrame ); // 第一帧数据加入keyFrame
 
             cout << "RANSAC" << endl;
             vector< cv::DMatch > matches;
             Fundamental_RANSAC(firstFrame, secondFrame, matches );
             cout << "一共找到了" << matches.size() << "组匹配点" << endl;
+            get_matched_colors(firstFrame, secondFrame, matches, colors, c2);
             //-- 估计两张图像间运动
             Mat R, t;
             Mat mask;
             pose_estimation_2d2d ( firstFrame.kp, secondFrame.kp, matches, R, t, mask );
-
+            maskout_colors(colors, mask);
             //-- 三角化
             triangulation( firstFrame.kp, secondFrame.kp, matches, R, t, mask, points );
 
@@ -98,37 +102,38 @@ int main( int argc, char** argv )
         }
         else
         {
-	  cout << "-------------------------------------------------" << endl;
+            cout << "-------------------------------------------------" << endl;
             cout << "Reading files " << currIndex << endl;
             FRAME currFrame = readFrame( currIndex, pd ); // 读取currFrame
             computeKeyPointsAndDesp( currFrame, detector, descriptor, detector_size ); //提取特征
 
             // 比较f1 和 f2
             vector< cv::DMatch > matches;
-            Fundamental_RANSAC(lastFrame, currFrame, matches );
+            // Fundamental_RANSAC(lastFrame, currFrame, matches );
+            find_frame_matches(lastFrame, currFrame, good_match_threshold, matches);
             cout << " good match after RANSAC : " << matches.size() << endl;
             RESULT_OF_PNP result = estimateMotion( lastFrame, currFrame, correspond_struct_idx[num_t], matches, points, camera );
-         /*   if ( result.inliers < min_inliers )    //inliers不够，放弃该帧
-            {
-                cout << "LESS INLIERS " << endl;
-                continue;
-            }
-            if ((currFrame.frameID - lastFrame.frameID) < min_KF) // interval less 间隔比较小
-            {
-                cout << " LESS INTERVAL " << endl;
-                continue;
-            }
-            // 计算运动范围是否太大
-            double norm = normofTransform(result.rvec, result.tvec);
-            cout << "NORM is : " << norm << endl;
-            if ( norm >= max_norm ) {
-                cout << "TOO FAR AWAY " << endl;   // too far away, may be error 运动太大
-                continue;
-            }
-            if ( norm <= keyframe_threshold ) {
-                cout << "TOO_CLOSE" << endl;   // too adjacent frame 太近
-                continue;
-            }*/
+            /*   if ( result.inliers < min_inliers )    //inliers不够，放弃该帧
+               {
+                   cout << "LESS INLIERS " << endl;
+                   continue;
+               }
+               if ((currFrame.frameID - lastFrame.frameID) < min_KF) // interval less 间隔比较小
+               {
+                   cout << " LESS INTERVAL " << endl;
+                   continue;
+               }
+               // 计算运动范围是否太大
+               double norm = normofTransform(result.rvec, result.tvec);
+               cout << "NORM is : " << norm << endl;
+               if ( norm >= max_norm ) {
+                   cout << "TOO FAR AWAY " << endl;   // too far away, may be error 运动太大
+                   continue;
+               }
+               if ( norm <= keyframe_threshold ) {
+                   cout << "TOO_CLOSE" << endl;   // too adjacent frame 太近
+                   continue;
+               }*/
             cout << " A NEW KEYFRAME" << endl;
             keyframes.push_back( currFrame );
             Mat R;
@@ -139,11 +144,12 @@ int main( int argc, char** argv )
             motions.push_back(result.tvec);
 
             vector<Point2f> p1, p2;
-
+            vector<Vec3b> c1, c2;
             get_matched_points(lastFrame, currFrame, matches, p1, p2);
+            get_matched_colors(lastFrame, currFrame, matches, c1, c2);
             cout << p1.size() << " p1  p2 " << p2.size() << endl;
             // 根据之前求解的R,T进行三维重建
-            vector<Point3d> next_points;
+            vector<Point3f> next_points;
 
             reconstruct(
                 K, rotations[num_t], motions[num_t],
@@ -151,7 +157,9 @@ int main( int argc, char** argv )
             correspond_struct_idx[num_t + 1].resize(currFrame.kp.size(), -1);
             fusion_points(
                 matches, correspond_struct_idx[num_t],
-                correspond_struct_idx[num_t + 1], points, next_points);
+                correspond_struct_idx[num_t + 1],
+                points, next_points,
+                colors, c1);
             cout << " points size is : " << points.size() << endl;
 
             imshow("KEY FRAME", currFrame.rgb);
@@ -168,6 +176,9 @@ int main( int argc, char** argv )
         p.x = points[i].x;
         p.y = points[i].y;
         p.z = points[i].z;
+        p.b = colors[i][0];
+        p.g = colors[i][1];
+        p.r = colors[i][2];
         pointCloud->points.push_back( p );
     }
     pointCloud->is_dense = false;
@@ -196,7 +207,7 @@ FRAME readFrame( int index, ParameterReader& pd )
     ss << depthDir << index << depthExt;
     ss >> filename;
 
-    f.depth = cv::imread( filename, -1 );
+//     f.depth = cv::imread( filename, -1 );
     f.frameID = index;
     return f;
 }

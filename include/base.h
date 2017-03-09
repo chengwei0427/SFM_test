@@ -48,8 +48,9 @@ struct CAMERA_INTRINSIC_PARAMETERS
 struct FRAME
 {
     int frameID;
-    cv::Mat rgb, depth; //该帧对应的彩色图
+    cv::Mat rgb; //该帧对应的彩色图
     cv::Mat desp;       //特征描述子
+    vector<Vec3b> colors; // 保存特征点颜色
     vector<cv::KeyPoint> kp; //关键点
 };
 
@@ -83,7 +84,7 @@ void pose_estimation_2d2d (
 
 // 像素坐标转相机归一化坐标
 Point2f pixel2cam( const Point2d& p, const Mat& K );
-
+void maskout_colors(vector<Vec3b>& p1, Mat& mask);
 void maskout_points(vector<Point2f>& p1, Mat& mask);
 
 void triangulation (
@@ -91,7 +92,7 @@ void triangulation (
     const vector<KeyPoint>& keypoint_2,
     const std::vector< DMatch >& matches,
     const Mat& R, const Mat& t, Mat& mask,
-    vector<Point3d>& points
+    vector<Point3f>& points
 );
 
 //  计算旋转平移量，估计运动大小
@@ -102,8 +103,20 @@ double normofTransform( cv::Mat rvec, cv::Mat tvec );
 cv::Point3f point2dTo3d( cv::Point3f& point, CAMERA_INTRINSIC_PARAMETERS& camera );
 
 // computeKeyPointsAndDesp 同时提取关键点与特征描述子
-void computeKeyPointsAndDesp( FRAME& frame, string detector, string descriptor ,int detector_size);
+void computeKeyPointsAndDesp( FRAME& frame, string detector, string descriptor , int detector_size);
 
+void find_frame_matches(
+    FRAME& first, FRAME& second,
+    double good_match_threshold,
+    std::vector< DMatch >& goodMatches);
+
+void get_matched_colors(
+    FRAME& first,
+    FRAME& second,
+    vector<DMatch> matches,
+    vector<Vec3b>& out_c1,
+    vector<Vec3b>& out_c2
+);
 void get_matched_points(
     FRAME& first,
     FRAME& second,
@@ -116,26 +129,28 @@ void fusion_points(
     vector<DMatch>& matches,
     vector<int>& struct_indices,
     vector<int>& next_struct_indices,
-    vector<Point3d>& structure,
-    vector<Point3d>& next_structure
+    vector<Point3f>& structure,
+    vector<Point3f>& next_structure,
+    vector<Vec3b>& colors,
+    vector<Vec3b>& next_colors
 );
 
 void reconstruct(
     Mat& K, Mat& R1, Mat& T1, Mat& R2, Mat& T2,
     vector<Point2f>& p1, vector<Point2f>& p2,
-    vector<Point3d>& structure);
+    vector<Point3f>& structure);
 // estimateMotion 计算两个帧之间的运动
 // 输入：帧1和帧2, 相机内参
 RESULT_OF_PNP estimateMotion(
     FRAME& frame1, FRAME& frame2,
     vector<int>& struct_indices,
     vector<DMatch>& goodMatches,
-    vector<Point3d>& points,
+    vector<Point3f>& points,
     CAMERA_INTRINSIC_PARAMETERS& camera );
 // RESULT_OF_PNP estimateMotion( FRAME& frame1, FRAME& frame2, CAMERA_INTRINSIC_PARAMETERS& camera );
 
 // cvMat2Eigen
-Eigen::Isometry3d cvMat2Eigen( cv::Mat& rvec, cv::Mat& tvec );
+// Eigen::Isometry3d cvMat2Eigen( cv::Mat& rvec, cv::Mat& tvec );
 
 // 参数读取类
 class ParameterReader
