@@ -1,0 +1,51 @@
+参考了 aipiano 博客：http://blog.csdn.net/aichipmunk/article/details/51232861
+参考了高博的《视觉slam十四讲》及一起做系列
+问题遗留：在三角化过程中，CV_EXPORTS_W void triangulatePoints( InputArray projMatr1, InputArray projMatr2,
+                                     InputArray projPoints1, InputArray projPoints2,
+                                     OutputArray points4D );
+                                 
+aipiano使用
+            Mat T1(3, 4, CV_32FC1);
+            Mat T2(3, 4, CV_32FC1);
+            //两个相机的投影矩阵[R T]，triangulatePoints只支持float型
+            // 以第一个相机为世界坐标系，故[R,T]为单位阵
+            Mat R0 = Mat::eye(3, 3, CV_64FC1);// 单位阵
+            Mat t0 = Mat::zeros(3, 1, CV_64FC1);           
+            R0.convertTo(T1(Range(0, 3), Range(0, 3)), CV_32FC1);
+            t0.convertTo(T1.col(3), CV_32FC1);
+             //  第二个相机相对于第一个相机的旋转，平移
+            R.convertTo(T2(Range(0, 3), Range(0, 3)), CV_32FC1);    
+	          t.convertTo(T2.col(3), CV_32FC1);
+            Mat fK;
+           K.convertTo(fK, CV_32FC1);
+           T1 = fK * T1;  // 为什么要这样，还不懂？？？
+           T2 = fK * T2;           //这里是对变换矩阵与内参进行操作？？      <------------------
+             //-- 三角化
+             Mat pts_4d;
+            cv::triangulatePoints( T1, T2, pts_1, pts_2, pts_4d ); <--------------------
+ 高博博客中使用
+ 
+  Mat T1 = (Mat_<float> (3,4) <<
+        1,0,0,0,
+        0,1,0,0,
+        0,0,1,0);
+    Mat T2 = (Mat_<float> (3,4) <<
+        R.at<double>(0,0), R.at<double>(0,1), R.at<double>(0,2), t.at<double>(0,0),
+        R.at<double>(1,0), R.at<double>(1,1), R.at<double>(1,2), t.at<double>(1,0),
+        R.at<double>(2,0), R.at<double>(2,1), R.at<double>(2,2), t.at<double>(2,0)
+    );
+    
+    Mat K = ( Mat_<double> ( 3,3 ) << 520.9, 0, 325.1, 0, 521.0, 249.7, 0, 0, 1 );
+    vector<Point2f> pts_1, pts_2;
+    for ( DMatch m:matches )
+    {
+        // 将像素坐标转换至相机坐标
+        pts_1.push_back ( pixel2cam( keypoint_1[m.queryIdx].pt, K) );// 注意这里转换为相机坐标系   <----------------
+        pts_2.push_back ( pixel2cam( keypoint_2[m.trainIdx].pt, K) );
+    }
+    
+    Mat pts_4d;
+    cv::triangulatePoints( T1, T2, pts_1, pts_2, pts_4d );
+    
+    
+    为什么这样呢？
