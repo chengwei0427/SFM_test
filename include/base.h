@@ -20,7 +20,8 @@ using namespace std;
 #include "opencv2/features2d/features2d.hpp"
 //#include <opencv2/nonfree/nonfree.hpp>
 #include <opencv2/core/eigen.hpp>
-//#include "opencv2/xfeatures2d.hpp"
+#include <opencv2/xfeatures2d/nonfree.hpp>
+// #include <opencv2/xfeatures2d.hpp>
 
 
 
@@ -37,7 +38,7 @@ typedef pcl::PointXYZRGBA PointT;
 typedef pcl::PointCloud<PointT> PointCloud;
 using namespace std;
 using namespace cv;
-
+// Ptr<Feature2D> sift = xfeatures2d::SIFT::create(0, 3, 0.04, 10);
 // 相机内参结构
 struct CAMERA_INTRINSIC_PARAMETERS
 {
@@ -77,10 +78,10 @@ void Fundamental_RANSAC(
     FRAME& first, FRAME& second,
     std::vector<DMatch>& matches);
 void pose_estimation_2d2d (
-    const std::vector<KeyPoint>& keypoints_1,
-    const std::vector<KeyPoint>& keypoints_2,
-    const std::vector< DMatch >& matches,
-    Mat& R, Mat& t, Mat& mask);
+    vector<Point2f>& points1,
+    vector<Point2f>& points2,
+    Mat& K,
+    Mat& R, Mat& t , Mat& mask);
 
 // 像素坐标转相机归一化坐标
 Point2f pixel2cam( const Point2d& p, const Mat& K );
@@ -88,12 +89,10 @@ void maskout_colors(vector<Vec3b>& p1, Mat& mask);
 void maskout_points(vector<Point2f>& p1, Mat& mask);
 
 void triangulation (
-    const vector<KeyPoint>& keypoint_1,
-    const vector<KeyPoint>& keypoint_2,
-    const std::vector< DMatch >& matches,
-    const Mat& R, const Mat& t, Mat& mask,
-    vector<Point3f>& points
-);
+    vector<Point2f>& pts_1,
+    vector<Point2f>& pts_2,
+    const Mat& R, const Mat& t,
+    vector< Point3f >& points );
 
 //  计算旋转平移量，估计运动大小
 double normofTransform( cv::Mat rvec, cv::Mat tvec );
@@ -139,6 +138,10 @@ void reconstruct(
     Mat& K, Mat& R1, Mat& T1, Mat& R2, Mat& T2,
     vector<Point2f>& p1, vector<Point2f>& p2,
     vector<Point3f>& structure);
+//  checkKeyFrame 判断是否为关键帧
+//  输入： 上一帧，当前帧，相机运动，inliers阈值，帧间隔， 最小运动，最大运动
+bool checkKeyFrame(FRAME& lastFrame,FRAME& currFrame, RESULT_OF_PNP& result, int inlier_threshold, int KF_interval, double normofTF_min, double normofTF_max);
+
 // estimateMotion 计算两个帧之间的运动
 // 输入：帧1和帧2, 相机内参
 RESULT_OF_PNP estimateMotion(

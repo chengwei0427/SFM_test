@@ -6,7 +6,7 @@
 
 // computeKeyPointsAndDesp 同时提取关键点与特征描述子
 void computeKeyPointsAndDesp( FRAME& frame, string detector, string descriptor, int detector_size )
-{
+{/*
     cv::Ptr<cv::FeatureDetector> _detector;
     cv::Ptr<cv::DescriptorExtractor> _descriptor;
 
@@ -23,7 +23,10 @@ void computeKeyPointsAndDesp( FRAME& frame, string detector, string descriptor, 
     }
 
     _detector->detect( frame.rgb, frame.kp );
-    _descriptor->compute( frame.rgb, frame.kp, frame.desp );
+    _descriptor->compute( frame.rgb, frame.kp, frame.desp );*/
+    Ptr<Feature2D> sift = xfeatures2d::SIFT::create(0, 2, 0.04, 10);
+    frame.kp.clear();
+    sift->detectAndCompute(frame.rgb, noArray(), frame.kp, frame.desp);
 
     // 保存颜色信息
     vector<Vec3b> colors(frame.kp.size());
@@ -56,6 +59,7 @@ void reconstruct(Mat& K, Mat& R1, Mat& T1, Mat& R2, Mat& T2, vector<Point2f>& p1
 
     //三角重建
     Mat s;
+    cout << "triangulatePoints" <<endl;
     triangulatePoints(proj1, proj2, p1, p2, s);
 
     structure.clear();
@@ -67,6 +71,36 @@ void reconstruct(Mat& K, Mat& R1, Mat& T1, Mat& R2, Mat& T2, vector<Point2f>& p1
         structure.push_back(Point3f(col(0), col(1), col(2)));
     }
 }
+
+bool checkKeyFrame(FRAME& lastFrame,FRAME& currFrame, RESULT_OF_PNP& result, int inlier_threshold, int KF_interval, double keyframe_threshold, double max_norm)
+{
+    if ( result.inliers < inlier_threshold )    //inliers不够，放弃该帧
+           {
+                   cout << "LESS INLIERS " << endl;
+                   return false;
+            }
+    if ((currFrame.frameID - lastFrame.frameID) < KF_interval) // interval less 间隔比较小
+               {
+                   cout << " LESS INTERVAL " << endl;
+                   return false;
+               }
+        // 计算运动范围是否太大
+        double norm = normofTransform(result.rvec, result.tvec);
+         cout << "NORM is : " << norm << endl;
+       if ( norm >= max_norm ) 
+       {
+              cout << "TOO FAR AWAY " << endl;   // too far away, may be error 运动太大
+               return false;
+         }
+       if ( norm <= keyframe_threshold )
+       {
+                   cout << "TOO_CLOSE" << endl;   // too adjacent frame 太近
+                   return false;
+         }
+         
+         return true;
+}
+
 
 // estimateMotion 计算两个帧之间的运动
 // 输入：帧1和帧2
@@ -118,7 +152,8 @@ RESULT_OF_PNP estimateMotion(
     // 求解pnp
     cout << "pts_obj number is :" << pts_obj.size() << endl;
     cout << " pts_img number is : " << pts_img.size() << endl;
-    cv::solvePnPRansac( pts_obj, pts_img, cameraMatrix, cv::Mat(), rvec, tvec, false, 100, 8.0, 0.88, inliers );
+   cv::solvePnPRansac( pts_obj, pts_img, cameraMatrix, cv::Mat(), rvec, tvec, false, 100, 8.0, 0.99, inliers );
+//     solvePnPRansac(pts_obj, pts_img, cameraMatrix, noArray(), rvec, tvec);
 
     result.rvec = rvec;
     result.tvec = tvec;
@@ -128,31 +163,6 @@ RESULT_OF_PNP estimateMotion(
     return result;
 }
 
-
-// cvMat2Eigen
-/*Eigen::Isometry3d cvMat2Eigen( cv::Mat& rvec, cv::Mat& tvec )
-{
-    cv::Mat R;
-    cv::Rodrigues( rvec, R );
-    Eigen::Matrix3d r;
-//     cv::cv2eigen(R, r);
-    for (int i = 0; i < 3; i++)
-        for (int j = 0; j < 3; j++)
-            r(i, j) = R.at<double>(i, j);
-
-    // 将平移向量和旋转矩阵转换成变换矩阵
-    Eigen::Isometry3d T = Eigen::Isometry3d::Identity();
-
-    Eigen::AngleAxisd angle(r);
-    Eigen::Translation<double, 3> trans(tvec.at<double>(0, 0), tvec.at<double>(0, 1), tvec.at<double>(0, 2));
-    T = angle;
-    T(0, 3) = tvec.at<double>(0, 0);
-//     T(1,3) = tvec.at<double>(0,1);
-//     T(2,3) = tvec.at<double>(0,2);
-    T(1, 3) = tvec.at<double>(1, 0);
-    T(2, 3) = tvec.at<double>(2, 0);
-    return T;
-}*/
 
 void get_matched_colors(
     FRAME& first,
@@ -238,6 +248,7 @@ void find_frame_matches(
 {
     Mat descriptors_1 = first.desp;
     Mat descriptors_2 = second.desp;
+    /*
     vector<DMatch> matches;
     BFMatcher matcher ( NORM_HAMMING );
     matcher.match ( descriptors_1, descriptors_2, matches );
@@ -251,13 +262,43 @@ void find_frame_matches(
 
     cout << "min dis = " << minDis << endl;
     if ( minDis < 10 )
-        minDis = 10;
+        minDis = 8;
     goodMatches.clear();
     for ( size_t i = 0; i < matches.size(); i++ )
     {
         if (matches[i].distance < good_match_threshold * minDis )
             goodMatches.push_back( matches[i] );
-    }
+    }*/
+    
+    vector<vector<DMatch>> knn_matches;
+	BFMatcher matcher(NORM_L2);
+	matcher.knnMatch(descriptors_1, descriptors_2, knn_matches, 2);
+
+	//获取满足Ratio Test的最小匹配的距离
+	float min_dist = 9999.9;
+	for (int r = 0; r < knn_matches.size(); ++r)
+	{
+		//Ratio Test
+		if (knn_matches[r][0].distance > 0.7 * knn_matches[r][1].distance)
+			continue;
+
+		float dist = knn_matches[r][0].distance;
+		if (dist < min_dist) min_dist = dist;
+	}
+
+	goodMatches.clear();
+	for (size_t r = 0; r < knn_matches.size(); ++r)
+	{
+		//排除不满足Ratio Test的点和匹配距离过大的点
+		if (
+		    knn_matches[r][0].distance > 0.7 * knn_matches[r][1].distance ||
+		    knn_matches[r][0].distance > 6 * max(min_dist, 10.0f)
+		)
+			continue;
+		//保存匹配点
+		goodMatches.push_back(knn_matches[r][0]);
+	}
+	
     Mat img;
     drawMatches ( first.rgb, first.kp, second.rgb, second.kp, goodMatches, img );
     imshow ( "匹配点对", img );
@@ -322,23 +363,11 @@ void find_feature_matches ( const Mat& img_1, const Mat& img_2,
 }
 
 void pose_estimation_2d2d (
-    const std::vector<KeyPoint>& keypoints_1,
-    const std::vector<KeyPoint>& keypoints_2,
-    const std::vector< DMatch >& matches,
+    vector<Point2f>& points1,
+    vector<Point2f>& points2,
+    Mat& K,
     Mat& R, Mat& t , Mat& mask)
 {
-    // 相机内参,TUM Freiburg2
-    Mat K = ( Mat_<double> ( 3, 3 ) << 520.9, 0, 325.1, 0, 521.0, 249.7, 0, 0, 1 );
-
-    //-- 把匹配点转换为vector<Point2f>的形式
-    vector<Point2f> points1;
-    vector<Point2f> points2;
-
-    for ( int i = 0; i < ( int ) matches.size(); i++ )
-    {
-        points1.push_back ( keypoints_1[matches[i].queryIdx].pt );
-        points2.push_back ( keypoints_2[matches[i].trainIdx].pt );
-    }
 
     //-- 计算基础矩阵
     Mat fundamental_matrix;
@@ -346,10 +375,15 @@ void pose_estimation_2d2d (
     //cout << "fundamental_matrix is " << endl << fundamental_matrix << endl;
 
     //-- 计算本质矩阵
-    Point2d principal_point ( 325.1, 249.7 );               //相机主点, TUM dataset标定值
-    int focal_length = 521;                     //相机焦距, TUM dataset标定值
+   //根据内参矩阵获取相机的焦距和光心坐标（主点坐标）
+    double focal_length = 0.5 * (K.at<double>(0) + K.at<double>(4));
+    Point2d principal_point(K.at<double>(2), K.at<double>(5));
+//     Point2d principal_point ( 325.1, 249.7 );               //相机主点, TUM dataset标定值
+//     int focal_length = 521;                     //相机焦距, TUM dataset标定值
     Mat essential_matrix;
-    essential_matrix = findEssentialMat ( points1, points2, focal_length, principal_point, RANSAC, 0.9, 1.0, mask );
+    essential_matrix = findEssentialMat ( points1, points2, focal_length, principal_point, RANSAC, 0.999, 1.0, mask );
+    double feasible_count = countNonZero(mask);
+    cout << (int)feasible_count << " -in- " << points1.size() << endl;
     //cout << "essential_matrix is " << endl << essential_matrix << endl;
 
     //-- 计算单应矩阵
@@ -388,10 +422,9 @@ void maskout_points(vector<Point2f>& p1, Mat& mask)
 }
 
 void triangulation (
-    const vector< KeyPoint >& keypoint_1,
-    const vector< KeyPoint >& keypoint_2,
-    const std::vector< DMatch >& matches,
-    const Mat& R, const Mat& t, Mat& mask,
+    vector<Point2f>& pts_1,
+    vector<Point2f>& pts_2,
+    const Mat& R, const Mat& t,
     vector< Point3f >& points )
 {
     Mat T1 = (Mat_<float> (3, 4) <<
@@ -403,20 +436,9 @@ void triangulation (
               R.at<double>(1, 0), R.at<double>(1, 1), R.at<double>(1, 2), t.at<double>(1, 0),
               R.at<double>(2, 0), R.at<double>(2, 1), R.at<double>(2, 2), t.at<double>(2, 0)
              );
-
-    Mat K = ( Mat_<double> ( 3, 3 ) << 520.9, 0, 325.1, 0, 521.0, 249.7, 0, 0, 1 );
-    vector<Point2f> pts_1, pts_2;
-    for ( DMatch m : matches )
-    {
-        // 将像素坐标转换至相机坐标
-        pts_1.push_back ( pixel2cam( keypoint_1[m.queryIdx].pt, K) );
-        pts_2.push_back ( pixel2cam( keypoint_2[m.trainIdx].pt, K) );
-    }
-    maskout_points(pts_1, mask);
-    maskout_points(pts_2, mask);
     Mat pts_4d;
+    cout << "before triangulatePoints " <<endl;
     cv::triangulatePoints( T1, T2, pts_1, pts_2, pts_4d );
-
     // 转换成非齐次坐标
     for ( int i = 0; i < pts_4d.cols; i++ )
     {
@@ -427,7 +449,6 @@ void triangulation (
             x.at<float>(1, 0),
             x.at<float>(2, 0)
         );
-//  cout << p.x << " " << p.y << " " << p.z << endl;
         points.push_back( p );
     }
 }

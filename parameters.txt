@@ -3,7 +3,7 @@
 # 特征类型
 detector=ORB
 descriptor=ORB
-detector_size=3200
+detector_size=1000
 # 筛选good match的倍数
 good_match_threshold=4
 
@@ -12,13 +12,18 @@ camera.cx=325.5;
 camera.cy=253.5;
 camera.fx=518.0;
 camera.fy=519.0;
+#camera.fx=2759.48;
+#camera.fy=2764.16;
+#camera.cx=1520.69;
+#camera.cy=1006.81;
 camera.scale=1000.0;
 
 # 数据相关
 # 起始与终止索引
-start_index=250
-end_index=280
+start_index=1
+end_index=50
 # 数据所在目录
+#rgb_dir=./data/images/
 rgb_dir=./data/rgb_png/
 rgb_extension=.png
 depth_dir=./data/depth_png/
