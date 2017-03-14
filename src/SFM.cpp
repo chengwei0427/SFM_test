@@ -105,19 +105,31 @@ int main( int argc, char** argv )
            K.convertTo(fK, CV_32FC1);
            T1 = fK * T1;  // 为什么要这样，还不懂？？？
            T2 = fK * T2;
-	  /*
-	       Mat T1 = (Mat_<float> (3, 4) <<
-              1, 0, 0, 0,
-              0, 1, 0, 0,
-              0, 0, 1, 0);
-             Mat T2 = (Mat_<float> (3, 4) <<
-              R.at<double>(0, 0), R.at<double>(0, 1), R.at<double>(0, 2), t.at<double>(0, 0),
-              R.at<double>(1, 0), R.at<double>(1, 1), R.at<double>(1, 2), t.at<double>(1, 0),
-              R.at<double>(2, 0), R.at<double>(2, 1), R.at<double>(2, 2), t.at<double>(2, 0)
-             );*/
 	      //-- 三角化
              Mat pts_4d;
             cv::triangulatePoints( T1, T2, pts_1, pts_2, pts_4d );
+	    
+	    	  
+	       Mat TT1 = (Mat_<float> (3, 4) <<
+              1, 0, 0, 0,
+              0, 1, 0, 0,
+              0, 0, 1, 0);
+             Mat TT2 = (Mat_<float> (3, 4) <<
+              R.at<double>(0, 0), R.at<double>(0, 1), R.at<double>(0, 2), t.at<double>(0, 0),
+              R.at<double>(1, 0), R.at<double>(1, 1), R.at<double>(1, 2), t.at<double>(1, 0),
+              R.at<double>(2, 0), R.at<double>(2, 1), R.at<double>(2, 2), t.at<double>(2, 0)
+             );
+	     vector<Point2f> PTS1,PTS2;
+	     for(int i = 0;i < pts_1.size(); i++)
+	     {
+// 	       cout << pts_1[i] <<endl;
+	       PTS1.push_back(pixel2cam(pts_1[i], K));
+	       PTS2.push_back(pixel2cam(pts_2[i], K));
+	    }
+	     Mat PTS4d;
+	     vector<Point3f> structure;
+	     cv::triangulatePoints(TT1,TT2, PTS1, PTS2, PTS4d);
+	     cout << "pts_4d" << pts_4d.cols << " --" << "PTS4d" << PTS4d.cols <<endl;
              // 转换成非齐次坐标
     for ( int i = 0; i < pts_4d.cols; i++ )
     {
@@ -129,7 +141,49 @@ int main( int argc, char** argv )
             x.at<float>(2, 0)
         );
         points.push_back( p );
+	
+	Mat y = PTS4d.col(i);
+	y /= y.at<float>(3, 0);
+	Point3f pp(
+	  y.at<float>(0,0),
+          y.at<float>(1,0),
+          y.at<float>(2,0)
+	);
+	structure.push_back(pp);
     }
+    
+        PointCloud::Ptr cloud1( new PointCloud );
+    for (int i = 0; i < points.size(); i++)
+    {
+        PointT p;
+        p.x = points[i].x;
+        p.y = points[i].y;
+        p.z = points[i].z;
+        p.b = colors[i][0];
+        p.g = colors[i][1];
+        p.r = colors[i][2];
+        cloud1->points.push_back( p );
+    }
+    cloud1->is_dense = false;
+    cout << "点云共有" << cloud1->size() << "个点." << endl;
+    pcl::io::savePCDFileBinary("cloud1.pcd", *cloud1 );
+    
+	PointCloud::Ptr cloud2( new PointCloud);
+	    for (int i = 0; i < structure.size(); i++)
+    {
+        PointT p;
+        p.x = structure[i].x;
+        p.y = structure[i].y;
+        p.z = structure[i].z;
+        p.b = colors[i][0];
+        p.g = colors[i][1];
+        p.r = colors[i][2];
+        cloud2->points.push_back( p );
+    }
+    cloud2->is_dense = false;
+    cout << "点云共有" << cloud2->size() << "个点." << endl;
+    pcl::io::savePCDFileBinary("cloud2.pcd", *cloud2 );
+    
 //             triangulation(  pts_1, pts_2, R, t, points );
 
     //保存变换矩阵
